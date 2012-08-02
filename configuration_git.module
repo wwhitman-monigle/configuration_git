@@ -9,6 +9,7 @@ define('CONFIGURATION_GIT_ADD', 'git add ');
 define('CONFIGURATION_GIT_COMMIT', 'git commit -m \'%s\''); // --author
 define('CONFIGURATION_GIT_INIT', 'git init --shared=all ');
 define('CONFIGURATION_GIT_REMOTE', 'git remote add origin ');
+define('CONFIGURATION_GIT_PULL', 'git remote add origin ');
 
 // Git Environment Specific
 define('CONFIGURATION_GIT_RESPOSITORY', '');
