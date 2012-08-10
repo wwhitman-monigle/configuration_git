@@ -7,14 +7,18 @@ define('CONFIGURATION_GIT_ADD', 'git add ');
 // Not Atomic
 //define('CONFIGURATION_GIT_ADD', 'git add -A ');
 define('CONFIGURATION_GIT_COMMIT', 'git commit -m \'%s\''); // --author
+define('CONFIGURATION_GIT_COMMIT_ALL', 'git commit -a -m \'%s\''); // --author
 define('CONFIGURATION_GIT_INIT', 'git init --shared=all ');
-define('CONFIGURATION_GIT_REMOTE', 'git remote add origin ');
-define('CONFIGURATION_GIT_PULL', 'git remote add origin ');
+define('CONFIGURATION_GIT_REMOTE', 'git remote add %s ');
+define('CONFIGURATION_GIT_PULL', 'git pull $s ');
+define('CONFIGURATION_GIT_PUSH', 'git push %s %s ');
 
 // Git Environment Specific
 define('CONFIGURATION_GIT_RESPOSITORY', '');
 define('CONFIGURATION_GIT_EMAIL', 'you@yourdomain.example.com');
 define('CONFIGURATION_GIT_NAME', 'Your Name Comes Here');
+define('CONFIGURATION_GIT_BRANCH', 'master');
+define('CONFIGURATION_GIT_REMOTENAME', 'origin');
 
 // Git Response / Error Specific
 define('CONFIGURATION_GIT_STATUS_NOREPO', 'Not a git repository');
@@ -25,6 +29,9 @@ define('CONFIGURATION_GIT_STATUS_REMOTEEXISTS', 'remote origin already exists');
 define('CONFIGURATION_GIT_STDOUT',' 2>&1');
 define('CONFIGURATION_GIT_DIRECTORYSEPERATOR','/');
 define('CONFIGURATION_GIT_WHOAMI', 'whoami ');
+
+// Reltated Module Names
+define('LIVE_CSS', 'live_css');
 
 /**
  * Implements configuration_gitpost_help.
@@ -44,6 +51,118 @@ function configuration_git_help($path, $arg) {
   }
 }
 
+/**
+ * Implements hook_menu().
+ */
+function configuration_git_menu() {
+  $items = array();
+
+  $items['admin/config/system/configuration_git'] = array(
+    'title' => 'Configuration git',
+    'description' => 'Configuration for Configuration git',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('configuration_git_config_form'),
+    'access arguments' => array('access administration pages'),
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'configuration_git.admin.inc',
+  );
+  
+  $items['admin/config/system/configuration_git/config'] = array(
+    'title' => 'Configuration',
+    'weight' => -1,
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  
+  $items['admin/config/system/configuration_git/status'] = array(
+    'title' => 'Status',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('configuration_git_status_form'),
+    'access arguments' => array('access configuration management'),
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'configuration_git.admin.inc',
+    'weight' => 1,
+  );
+  
+  if (module_exists(LIVE_CSS))
+  {
+	$items['css/save'] = array(
+		'page callback' => 'configuration_git_live_css_save', 
+		'access arguments' => array('edit css'),
+		'type' => MENU_CALLBACK,
+	);
+  }
+  return $items;
+}
+
+/**
+ * Commit form
+ *
+ * @see configuration_git_menu()
+ * @param type $form
+ * @param type $form_state
+ * @return type 
+ */
+function configuration_git_commit_form($form, &$form_state) {
+  // Form elements
+  $form = array();
+  
+  // Text field
+  $form['name'] = array(
+    '#title' => t('Commit Message'),
+    '#type' => 'textfield',
+    '#required' => TRUE,
+    '#type' => 'textarea',
+    '#rows' => 3,
+    '#cols' => 64,
+    '#description' => t('Enter a meaningful message of what you did.'),
+    '#required' => TRUE,
+  );
+  
+  // Submit
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => 'Commit',
+  );
+  
+  return $form;
+}
+
+/**
+ *	Re Implements live_css_save() to include git commits
+ * 
+ * @global string base_url 
+ */
+function configuration_git_live_css_save() {
+	$css = $_POST['css'];
+	$href = $_POST['href'];
+
+	// The URL may contain cache data. In that case, we need to strip them.
+	// i.e. http://.../css/my_file.css?m1unhm
+	$sanitized_url = _live_css_sanitize_css_url($href);
+
+	// File path relative to Drupal installation folder.
+	global $base_url;
+	$stripped_url = drupal_substr($sanitized_url, drupal_strlen($base_url) , drupal_strlen($sanitized_url));
+	$filename = _live_css_document_root() . $stripped_url; 
+
+	// and boom goes the dynamite
+	ob_start();
+	live_css_save();
+	$json_buffer = ob_get_clean();
+	
+	$status = configuration_git_add_file($filename);
+	if ($status['return_var'])
+		drupal_set_message(t('Falied to add %file to git repo, Error %error', array('%file' => $filename, '%error' => implode(' ',$status['output']))),'error');
+	else
+		drupal_set_message(t('Added %file to git repo', array('%file' => $filename)));
+	$status = configuration_git_commit_file($filename);
+	if ($status['return_var'])
+		drupal_set_message(t('Falied to commit %file to git repo, Error %error', array('%file' => $filename, '%error' => implode(' ',$status['output']))),'error');
+	else
+		drupal_set_message(t('Committed %file to git repo', array('%file' => $filename)));
+  
+	echo $json_buffer;
+}
 
 /**
  * Implements configuration_git_after_configuration_write_exports
@@ -102,12 +221,68 @@ function configuration_git_add_file($filename) {
 function configuration_git_commit_file($filename) {
 	global $user;
 	$return_var = 0;
+	$result = array();
 	$output = array();
 	
 	if ($user->mail)
 		$command = sprintf(CONFIGURATION_GIT_COMMIT,$user->mail) . $filename;
 	else
 		$command = sprintf(CONFIGURATION_GIT_COMMIT,variable_get('configuration_git_email', CONFIGURATION_GIT_EMAIL)) . $filename;
+		
+	ob_start();
+	exec($command . CONFIGURATION_GIT_STDOUT, $output, $return_var);
+	$buffer = ob_get_clean();
+	$result['return_var'] = $return_var;
+	$result['output'] = $output;
+	$result['buffer'] = $buffer;
+	
+	// passing results, dummy method
+	return $result;
+}
+
+/**
+ * Implements configuration_git_commit_all
+ *
+ */
+function configuration_git_commit_all() {
+	global $user;
+	$return_var = 0;
+	$result = array();
+	$output = array();
+	
+	if ($user->mail)
+		$command = sprintf(CONFIGURATION_GIT_COMMIT_ALL,$user->mail);
+	else
+		$command = sprintf(CONFIGURATION_GIT_COMMIT_ALL,variable_get('configuration_git_email', CONFIGURATION_GIT_EMAIL));
+				
+	ob_start();
+	exec($command . CONFIGURATION_GIT_STDOUT, $output, $return_var);
+	$buffer = ob_get_clean();
+	$result['return_var'] = $return_var;
+	$result['output'] = $output;
+	$result['buffer'] = $buffer;
+	
+	// passing results, dummy method
+	return $result;
+}
+
+/**
+ * Implements configuration_git_push
+ *
+ */
+function configuration_git_push() {
+	global $user;
+	$return_var = 0;
+	$result = array();
+	$output = array();
+	
+	$remote = variable_get('configuration_git_remotename', CONFIGURATION_GIT_REMOTENAME);
+	$branch = variable_get('configuration_git_branch', CONFIGURATION_GIT_BRANCH);
+	if ($user->mail)
+		$command = sprintf(CONFIGURATION_GIT_PUSH,$remote,$branch);
+	else
+		$command = sprintf(CONFIGURATION_GIT_PUSH,$remote,$branch);
+				
 	ob_start();
 	exec($command . CONFIGURATION_GIT_STDOUT, $output, $return_var);
 	$buffer = ob_get_clean();
@@ -140,7 +315,7 @@ function configuration_git_status() {
 	
 	if ($result['return_var']==CONFIGURATION_GIT_CODE_NOREPO)
 	{
-		$result = configuration_git_init();
+		$result = configuration_git_repo_init();
 //		ob_start();
 //		@exec($command . CONFIGURATION_GIT_STDOUT, $output, $return_var);
 //		$buffer = ob_get_clean();
@@ -157,7 +332,7 @@ function configuration_git_status() {
  * @param filename 
  *	Complete path to the file that will be added to the repository.
  */
-function configuration_git_init() {
+function configuration_git_repo_init() {
 	
 	$return_var = 0;
 	$output = array();
@@ -202,133 +377,4 @@ function configuration_git_remote($url='') {
 	
 	// passing results, dummy method
 	return $result;
-}
-
-/**
- * Implements hook_menu().
- */
-function configuration_git_menu() {
-  $items = array();
-
-  $items['admin/config/system/configuration_git'] = array(
-    'title' => 'Configuration git',
-    'description' => 'Configuration for Configuration git',
-    'page callback' => 'drupal_get_form',
-    'page arguments' => array('configuration_git_admin_config_system_form'),
-    'access arguments' => array('access administration pages'),
-    'type' => MENU_NORMAL_ITEM,
-  );
-
-  return $items;
-}
-
-/**
- * Administrative form
- *
- * @see configuration_git_menu()
- * @param type $form
- * @param type $form_state
- * @return type 
- */
-function configuration_git_admin_config_system_form($form, &$form_state) {
-  $form['configuration_git_repository'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Platform git Respository'),
-    '#default_value' => variable_get('configuration_git_repository', CONFIGURATION_GIT_RESPOSITORY),
-    '#size' => 64,
-    '#maxlength' => 254,
-    '#description' => t('Enter the Git Repository Location Here (https://, Leave blank for local only.)'),
-    '#required' => FALSE,
-  );
-  $form['configuration_git_name'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Platform git Name'),
-    '#default_value' => variable_get('configuration_git_name', CONFIGURATION_GIT_NAME),
-    '#size' => 64,
-    '#maxlength' => 254,
-    '#description' => t('Enter the Git Repository Default Name Address (.gitconfig)'),
-    '#required' => TRUE,
-  );
-  $form['configuration_git_email'] = array(
-    '#type' => 'textfield',
-    '#title' => t('Platform git Email'),
-    '#default_value' => variable_get('configuration_git_email', CONFIGURATION_GIT_EMAIL),
-    '#size' => 64,
-    '#maxlength' => 254,
-    '#description' => t('Enter the Git Repository Default Email Address (.gitconfig)'),
-    '#required' => TRUE,
-  );
-
-  return system_settings_form($form);
-}
-
-/**
- * Implements validation from the Form API.
- * 
- * @param $form
- *   A structured array containing the elements and properties of the form.
- * @param $form_state
- *   An array that stores information about the form's current state 
- *   during processing.
- */
-function configuration_git_admin_config_system_form_validate($form, &$form_state){
-  $configuration_git_repository = $form_state['values']['configuration_git_repository'];
-  $configuration_git_name = $form_state['values']['configuration_git_name'];
-  $configuration_git_email = $form_state['values']['configuration_git_email'];
-  // TODO etc
-  if (false){
-    form_set_error('configuration_git_repository', t('message configuration_git_repository'));
-  }
-  if (false){
-    form_set_error('configuration_git_name', t('message configuration_git_name'));
-  }
-  if (false){
-    form_set_error('configuration_git_email', t('message configuration_git_email'));
-  }
-  
-  $status = configuration_git_status();
-  if ($status['return_var'])
-  {
-	form_set_error('configuration_git_repository', t(implode('\n',$status['output'])));
-  }
-  
-  $status = configuration_git_remote();
-  if ($status['return_var'])
-	  if (!stripos(implode(' ',$status['output']), CONFIGURATION_GIT_STATUS_REMOTEEXISTS))
-		form_set_error('configuration_git_repository', t($status['return_var'].':'.implode('\n',$status['output'])));
-  
-  
-}
-
-/**
- * Commit form
- *
- * @see configuration_git_menu()
- * @param type $form
- * @param type $form_state
- * @return type 
- */
-function configuration_git_commit_form($form, &$form_state) {
-  // Form elements
-  $form = array();
-  
-  // Text field
-  $form['name'] = array(
-    '#title' => t('Commit Message'),
-    '#type' => 'textfield',
-    '#required' => TRUE,
-    '#type' => 'textarea',
-    '#rows' => 3,
-    '#cols' => 64,
-    '#description' => t('Enter a meaningful message of what you did.'),
-    '#required' => TRUE,
-  );
-  
-  // Submit
-  $form['submit'] = array(
-    '#type' => 'submit',
-    '#value' => 'Commit',
-  );
-  
-  return $form;
 }
