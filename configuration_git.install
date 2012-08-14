@@ -1,0 +1,28 @@
+<?php
+
+
+
+/**
+ * Implements hook_install().
+ */
+function configuration_git_install() {
+  variable_set('configuration_git_repository', CONFIGURATION_GIT_RESPOSITORY);
+  variable_set('configuration_git_name', CONFIGURATION_GIT_NAME);
+  variable_set('configuration_git_email', CONFIGURATION_GIT_EMAIL);
+  variable_set('configuration_git_remotename', CONFIGURATION_GIT_REMOTENAME);
+  variable_set('configuration_git_branch', CONFIGURATION_GIT_BRANCH);
+}
+
+
+
+/**
+ * Implements hook_uninstall().
+ */
+function configuration_git_uninstall() {
+  variable_del('configuration_git_repository'); 
+  variable_del('configuration_git_name'); 
+  variable_del('configuration_git_email'); 
+  variable_del('configuration_git_remotename'); 
+  variable_del('configuration_git_branch'); 
+}
+
