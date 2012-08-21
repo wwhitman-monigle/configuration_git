@@ -30,6 +30,8 @@ define('CONFIGURATION_GIT_STDOUT',' 2>&1');
 define('CONFIGURATION_GIT_DIRECTORYSEPERATOR','/');
 define('CONFIGURATION_GIT_WHOAMI', 'whoami ');
 
+define('CONFIGURATION_GIT_ENVIRONMENT', 'Development');
+
 // Reltated Module Names
 define('LIVE_CSS', 'live_css');
 
@@ -61,22 +63,22 @@ function configuration_git_menu() {
     'title' => 'Configuration git',
     'description' => 'Configuration for Configuration git',
     'page callback' => 'drupal_get_form',
-    'page arguments' => array('configuration_git_config_form'),
+    'page arguments' => array('configuration_git_status_form'),
     'access arguments' => array('access administration pages'),
     'type' => MENU_NORMAL_ITEM,
     'file' => 'configuration_git.admin.inc',
   );
   
-  $items['admin/config/system/configuration_git/config'] = array(
-    'title' => 'Configuration',
+  $items['admin/config/system/configuration_git/status'] = array(
+    'title' => 'Status',
     'weight' => -1,
     'type' => MENU_DEFAULT_LOCAL_TASK,
   );
   
-  $items['admin/config/system/configuration_git/status'] = array(
-    'title' => 'Status',
+  $items['admin/config/system/configuration_git/config'] = array(
+    'title' => 'Configuration',
     'page callback' => 'drupal_get_form',
-    'page arguments' => array('configuration_git_status_form'),
+    'page arguments' => array('configuration_git_config_form'),
     'access arguments' => array('access configuration management'),
     'type' => MENU_LOCAL_TASK,
     'file' => 'configuration_git.admin.inc',
@@ -324,6 +326,65 @@ function configuration_git_status() {
 //		$result['buffer'] = $buffer;
 	}
 	return $result;
+}
+
+define('CONFIGURATION_GIT_STATUS_DELIMITER','\n');
+define('CONFIGURATION_GIT_STATUS_BRANCH_TOKEN','# On branch ');
+define('CONFIGURATION_GIT_STATUS_STAGED_TOKEN','# Changes to be committed:');
+define('CONFIGURATION_GIT_STATUS_MODIFIED_TOKEN','# Changes not staged for commit:');
+define('CONFIGURATION_GIT_STATUS_UNTRACKED_TOKEN','# Untracked files:');
+define('CONFIGURATION_GIT_COMMENT','#');
+
+function configuration_git_parse_status($status_array) {
+  $result = array(
+      'branch' => '',
+      'staged' => array(),
+      'modified' => array(),
+      'untracked' => array(),
+  );
+  // early out
+  $section = 'branch';
+  foreach($status_array AS $status_line)
+  {
+    $branch = str_replace(CONFIGURATION_GIT_STATUS_BRANCH_TOKEN, '', $status_line);
+    if ($branch!=$status_line) 
+    {
+      $status_line = $branch;
+      $section = 'branch';
+    }
+    else
+    {
+      $staged = str_replace(CONFIGURATION_GIT_STATUS_STAGED_TOKEN, '', $status_line);
+      if ($staged != $status_line)
+      {
+        $status_line = $staged;
+        $section = 'staged';
+      }
+      else
+      {
+        $modified = str_replace(CONFIGURATION_GIT_STATUS_MODIFIED_TOKEN, '', $status_line);
+        if ($modified != $status_line)
+        {
+          $status_line = $modified;
+          $section = 'modified';
+        }
+        else
+        {
+          $untracked = str_replace(CONFIGURATION_GIT_STATUS_UNTRACKED_TOKEN, '', $status_line);
+          if ($untracked != $status_line)
+          {
+            $status_line = $untracked;
+            $section = 'untracked';
+          }
+        }
+      }
+    }
+    if ($status_line&&($status_line!=CONFIGURATION_GIT_COMMENT)&&(!stristr($status_line, CONFIGURATION_GIT_COMMENT.'   (')))
+    {
+      $result[$section][] = trim(str_replace(CONFIGURATION_GIT_COMMENT, '', $status_line));
+    }
+  }
+  return $result;
 }
 
 /**

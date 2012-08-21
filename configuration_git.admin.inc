@@ -55,6 +55,15 @@ function configuration_git_config_form($form, &$form_state) {
     '#description' => t('Enter the Git Repository Default Branch (.gitconfig)'),
     '#required' => TRUE,
   );
+  $form['configuration_git_environment'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Platform Environment'),
+    '#default_value' => variable_get('configuration_git_environment', CONFIGURATION_GIT_ENVIRONMENT),
+    '#size' => 32,
+    '#maxlength' => 64,
+    '#description' => t('(Production,Stage,Dev)'),
+    '#required' => TRUE,
+  );
 
   return system_settings_form($form);
 }
@@ -99,7 +108,7 @@ function configuration_git_admin_config_system_form_validate($form, &$form_state
   $status = configuration_git_status();
   if ($status['return_var'])
   {
-	form_set_error('configuration_git_repository', t(implode('\n',$status['output'])));
+    form_set_error('configuration_git_repository', t(implode(CONFIGURATION_GIT_STATUS_DELIMITER,$status['output'])));
   }
   
   $status = configuration_git_remote();
@@ -108,7 +117,6 @@ function configuration_git_admin_config_system_form_validate($form, &$form_state
       form_set_error('configuration_git_repository', t($status['return_var'].':'.implode('\n',$status['output'])));
     
 }
-
 /**
  * Administrative form
  *
@@ -119,23 +127,35 @@ function configuration_git_admin_config_system_form_validate($form, &$form_state
  */
 function configuration_git_status_form($form, &$form_state) {
 	
-	configuration_git_status();
 	$form['help_text'] = array(
 	'#markup' => 'Below is the status from the current Git repository.',
 	'#prefix' => '<div>',
-	'#suffix' => '</div>',
+	'#suffix' => '</div><br /><br />',
 	);
 	
-	$result = configuration_git_status();
-	$form['status_text'] = array(
-	'#markup' => str_ireplace('\n','<br />',implode('<br />',$result['output'])),
-	'#prefix' => '<div>',
+	$status_text = configuration_git_status();  
+  $results = configuration_git_parse_status($status_text['output']);
+	$form['branch_text'] = array(
+	'#markup' => $results['branch'][0],
+	'#prefix' => '<h3>Returned Branch:</h3><div>',
 	'#suffix' => '</div>',
 	);
-	
-	$form['status_text'] = array(
-	'#markup' => str_ireplace('\n','<br />',implode('<br />',$result['output'])),
-	'#prefix' => '<div>',
+  
+	$form['staged_text'] = array(
+	'#markup' => implode('<br />',$results['staged']),
+	'#prefix' => '<h3>Staged Modifications:</h3><div>',
+	'#suffix' => '</div>',
+	);
+  
+	$form['modified_text'] = array(
+	'#markup' => implode('<br />',$results['modified']),
+	'#prefix' => '<h3>Uncommitted Modifications:</h3><div>',
+	'#suffix' => '</div>',
+	);
+  
+	$form['untracked_text'] = array(
+	'#markup' => implode('<br />',$results['untracked']),
+	'#prefix' => '<h3>Untracked Files:</h3><div>',
 	'#suffix' => '</div>',
 	);
 
@@ -143,6 +163,7 @@ function configuration_git_status_form($form, &$form_state) {
 	'#type' => 'submit',
 	'#value' => t('Commit Changes'),
 	'#weight' => 20,
+	'#prefix' => '<br /><br />',
 	'#submit' => array('configuration_git_commit_all_submit'),
 	);
 
@@ -150,6 +171,7 @@ function configuration_git_status_form($form, &$form_state) {
 	'#type' => 'submit',
 	'#value' => t('Push Changes'),
 	'#weight' => 20,
+	'#prefix' => '<br /><br />',
 	'#submit' => array('configuration_git_push_all_submit'),
 	);
 
